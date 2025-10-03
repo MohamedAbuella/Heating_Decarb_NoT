@@ -802,9 +802,9 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
         gas_opex_price = 37
         hyd_opex_price = 120
     elif price_fg==3:
-        ele_opex_price = 125 # in £/MWh
+        ele_opex_price = 37 # in £/MWh
         gas_opex_price = 37
-        hyd_opex_price = 150
+        hyd_opex_price = 0
     elif price_fg==4:
         ele_opex_price = 125 # in £/MWh
         gas_opex_price = 37
@@ -823,6 +823,7 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
         
     genCount = np.shape(genData)[0]
 
+
     prob = lp.LpProblem("OPGF", lp.LpMinimize)
     
     # Variables
@@ -839,20 +840,27 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     q_h_surplus = lp.LpVariable("hydrogen_surplus", cat='Continuous')  # Surplus hydrogen for fuel cell
     q_fc = lp.LpVariable("fuel_cell_electricity", cat='Continuous')
     
+    C_EZ = ele_opex_price / ez_eff + hyd_opex_price
+    C_ATR = gas_opex_price / atr_eff + hyd_opex_price + CO2_penalty * 0.05
+    f_EZ  = 1 / C_EZ / (1 / C_EZ + 1 / C_ATR)
+    f_ATR = 1 - f_EZ
+    
+    
     # Objective function 
     prob += (
         lp.lpSum(ele_opex_price * q_e[gen] for gen in range(genCount))
         + lp.lpSum(ele_opex_price * q_p2g[p2g] for p2g in range(4))
         + lp.lpSum(gas_opex_price * q_g2p[g2p] for g2p in range(5))
         + lp.lpSum(gas_opex_price * q_g)
-        + lp.lpSum(hyd_opex_price * q_h)
+        # + lp.lpSum(hyd_opex_price * q_h)
+        + lp.lpSum(hyd_opex_price * (q_h_electrolyser + q_h_atr))
         + lp.lpSum(ele_opex_price * q_h_electrolyser * (1/ez_eff))
-        + lp.lpSum(gas_opex_price * q_h_atr * (1/atr_eff))
+        # + lp.lpSum(gas_opex_price * q_h_atr * (1/atr_eff))
         + lp.lpSum(hyd_opex_price * q_h_surplus)
         
         + lp.lpSum(CO2_penalty * (0.1) * q_g2p[g2p] for g2p in range(5))
         + lp.lpSum(CO2_penalty * (0.1) * q_g)
-        + lp.lpSum(CO2_penalty * (0.05) * q_h_atr * (1/atr_eff)) # 0.1, 0.05 capture_rate for CCS
+        # + lp.lpSum(CO2_penalty * (0.05) * q_h_atr * (1/atr_eff)) # 0.1, 0.05 capture_rate for CCS
 
         
         - lp.lpSum(ele_opex_price * q_fc)
@@ -875,8 +883,17 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     prob += q_g == qg_h2_gas['qg_gas']
     prob += q_h == qg_h2_gas['qg_h2']
     
+    prob += q_h_electrolyser == f_EZ * (q_h_electrolyser + q_h_atr)
+    prob += q_h_atr == f_ATR * (q_h_electrolyser + q_h_atr)
     
-    prob += (q_h_electrolyser + q_h_atr) == (capacity_HB + capacity_H2 + q_h_surplus), "Hydrogen_Balance"
+    # Total hydrogen to be produced
+    total_H2_needed = capacity_HB + capacity_H2 + q_h_surplus
+    
+    # Enforce cost-based splitting
+    prob += q_h_electrolyser == f_EZ * total_H2_needed, "EZ_H2_split"
+    prob += q_h_atr       == f_ATR * total_H2_needed, "ATR_H2_split"
+
+    # prob += (q_h_electrolyser + q_h_atr) == (capacity_HB + capacity_H2 + q_h_surplus), "Hydrogen_Balance"
     
     # prob += q_h_electrolyser <= (capacity_H2 + q_h_surplus) , "EZ_Capacity_Limit"
     # prob += q_h_atr <= (capacity_HB + q_h_surplus) , "ATR_Capaity_Limit"
@@ -885,12 +902,15 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     prob += + q_fc <= q_h_surplus * fc_eff , "FC_Capacity_Limit"
     
     
-    prob += q_h_atr >= 0
-    prob += q_h_electrolyser >= 0
+    # prob += q_h_atr >= 0
+    # prob += q_h_electrolyser >= 0
+    prob += + q_h_atr <= (capacity_HB + capacity_H2 +q_h_surplus), "ATR_Capacity_Limit"
+    prob += + q_h_electrolyser <= (capacity_HB + capacity_H2 +q_h_surplus), "EZ_Capacity_Limit"
     prob += q_h_surplus >= 0 
     prob += q_fc >= 0 
     
-    
+
+
     # P2G and G2P constraints (unchanged)
     p2g_limits = [multinet.nets['power'].load['p_mw'][33],
                   multinet.nets['power'].load['p_mw'][34],
@@ -918,9 +938,11 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     prob += lp.lpSum(q_p2g[p2g] for p2g in range(4)) <= sum(p2g_limits), "C4"
     prob += lp.lpSum(q_g2p[g2p] for g2p in range(5)) <= sum(g2p_limits), "C5"
     
+
     # Solve the problem
     prob.solve(lp.PULP_CBC_CMD(msg=0))
-
+         
+    
     # Extract results
     global variable, Total_cost, optimal_q_e, optimal_q_g, optimal_q_p2g, \
            optimal_q_g2p, optimal_q_h, q_gh_chp_gt_value, gas_capacity_value, \
@@ -955,11 +977,28 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     print('optimal_q_h_atr=', optimal_q_h_atr)
     print('optimal_q_h_surplus=', optimal_q_h_surplus)
         
-    # Set capacities based on optimization results
-    EZ_capacity_value = optimal_q_h_electrolyser   
-    ATR_capacity_value = optimal_q_h_atr 
-    FC_capacity_value = abs(optimal_q_h_surplus) 
     
+    # Set capacities based on optimization results
+    if EZ_ATR_fg =='Optimal':
+        EZ_capacity_value = optimal_q_h_electrolyser   
+        ATR_capacity_value = optimal_q_h_atr 
+        FC_capacity_value = abs(optimal_q_h_surplus) 
+        
+    # Split H2 (EZ and ATR) linearly based on their marginal cost of H2 production
+    if EZ_ATR_fg =='H2CostWeight':
+        total_hydrogen = capacity_HB + capacity_H2 + q_h_surplus.varValue
+        sum_inv_costs = 1/C_EZ + 1/C_ATR
+        q_h_electrolyser_share = (1/C_EZ) / sum_inv_costs
+        q_h_atr_share        = (1/C_ATR) / sum_inv_costs
+        q_h_electrolyser_value = total_hydrogen * q_h_electrolyser_share
+        q_h_atr_value          = total_hydrogen * q_h_atr_share
+        
+        EZ_capacity_value  = q_h_electrolyser_value
+        ATR_capacity_value = q_h_atr_value
+        FC_capacity_value = abs(optimal_q_h_surplus) 
+
+
+    # Set capacities based on EZ_ATR_fg values (manual allocation)
     if EZ_ATR_fg == 0.5:
         EZ_capacity_value = (capacity_HB + capacity_H2 + FC_capacity_value)/2
         ATR_capacity_value = (capacity_HB + capacity_H2 + FC_capacity_value)/2
@@ -978,9 +1017,7 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     print('EZ_capacity_value=', EZ_capacity_value)
     print('ATR_capacity_value=', ATR_capacity_value)
     print('FC_capacity_value=', FC_capacity_value)
-    
-    
-
+        
     
     
     # Update hydrogen network components
