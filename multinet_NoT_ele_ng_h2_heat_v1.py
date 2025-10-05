@@ -711,64 +711,61 @@ def print_results(multinet):
 
 
 
+
 def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, price_fg, 
-         heat_pumps, hydrogen_boilers, base_sw, HPHB_sw, EZ_ATR_fg,
+         heat_pumps, hydrogen_boilers, base_sw, HPHB_sw, EZ_ATR_FC_CHP_fg,
          list_ele_demand, list_gas_demand):
     
-    global EF, e_demand, g_demand
+    global EF, e_demand, g_demand, hydrogen_marginal_cost
     
-        
     EF = mdot_energy_conv(H2_prop)  # Calculate energy density
     HHV_h2 = mdot_energy_conv(H2_prop)  
 
-    # Demand calculations (unchanged)
+    # Demand calculations
     if base_sw == 'Base':
         e_demand = sum(multinet.nets['power'].load['p_mw'][0:33]) 
         g_demand = sum(multinet.nets['gas'].sink['mdot_kg_per_s'][0:15])*(EF*1*3600)/(0.4*1000)
-        hyd_share = 0.0  # Hydrogen share in gas demand 
-        chp_heating_share = 0.0 #CHP meets this share % of heating demand
+        hyd_share = 0.0
+        chp_heating_share = 0.0
     elif base_sw == 'MC':
         e_demand = sum(multinet.nets['power'].load['p_mw'][0:33]) 
         g_demand = sum(multinet.nets['gas'].sink['mdot_kg_per_s'][0:15])*(EF*1*3600)/(0.4*1000)
-        hyd_share = H2_prop  # Hydrogen share in entire gas network 
+        hyd_share = H2_prop
 
     if HPHB_sw=='HP_HB_Interv' and (heat_pumps==0.5 and hydrogen_boilers==0.5):
-        chp_heating_share = 0 #CHP meets this share 0 because 50% from HP and 50% from HB for heating
+        chp_heating_share = 0
     elif HPHB_sw=='HP_HB_Interv' and (heat_pumps==0.3 and hydrogen_boilers==0.7):
-        chp_heating_share = 0 #CHP meets this share 0 because 30% from HP and 70% from HB for heating
-        
+        chp_heating_share = 0
     elif (HPHB_sw=='HP_Interv' or HPHB_sw=='HB_Interv') and (heat_pumps==1 or hydrogen_boilers==1):
-        chp_heating_share = 0  #Base case no CHP for heating
+        chp_heating_share = 0
     elif HPHB_sw=='Base_MC_Interv' and (heat_pumps==0 and hydrogen_boilers==0):
-        chp_heating_share = 0  #Base case no CHP for heating
+        chp_heating_share = 0
+    elif HPHB_sw=='Base_MC_Interv' and H2_prop==1.0:
+        chp_heating_share = 0.4
     else: 
-        # chp_heating_share = 1 #CHP meets this share % of heating demand as district heating
-        chp_heating_share = 0 #CHP meets this share % of heating demand as district heating
+        chp_heating_share = 0
 
-    chp_elec_eff = 0.4  # CHP electrical efficiency
-    chp_heat_eff = 0.4  # CHP heat efficiency
+    chp_elec_eff = 0.4
+    chp_heat_eff = 0.4
     
     atr_eff = 0.75
     ez_eff = 0.60
     fc_eff = 0.60
     
-    ##########################
-    if hydrogen_boilers>=0.5:  ## To make H2 blending=0 in the OPGF variables
+    if hydrogen_boilers>=0.5:
         hyd_share = 0.0
-    ##########################
 
-    capacity_CHP = chp_heating_share * g_demand # CHP Capacity 
-    
-    # capacity_H2 = hyd_share * g_demand # Hydrogen Blending Capacity 
+    capacity_CHP = chp_heating_share * g_demand
+    capacity_CHP_before_split_CHP_FC = capacity_CHP
+
     D_g = energy_h2_gas(hyd_share, g_demand)
     capacity_H2 = D_g['qg_h2']
     
-    capacity_HB = hydrogen_boilers * g_demand # Hydrogen Boiler Capacity 
+    capacity_HB = hydrogen_boilers * g_demand 
     if heat_pumps==1:
-        # capacity_H2 = hyd_share * e_demand # Hydrogen Blending Capacity 
         D_e = energy_h2_gas(hyd_share, e_demand)
         capacity_H2 = D_e['qg_h2']
-        capacity_HB = hydrogen_boilers * e_demand # Hydrogen Boiler Capacity 
+        capacity_HB = hydrogen_boilers * e_demand 
     
     print('capacity_CHP=', capacity_CHP)
     print('capacity_HB=', capacity_HB)
@@ -782,48 +779,39 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     if base_sw=='MC':
         print('g_demand_MC=', g_demand)
         print('e_demand_MC=', e_demand)
-        # print('power_load_0_30=', multinet.nets['power'].load['p_mw'][0:33]) 
-        # print('gas_sinks_MW_0_15=', multinet.nets['gas'].sink['mdot_kg_per_s'][0:15]*(EF*1*3600)/(0.4*1000))
         
     list_gas_demand.append(round(g_demand, 2))  
     list_ele_demand.append(round(e_demand, 2))
 
-    # Price settings (unchanged)
+    # Price settings
     if price_fg==0:
-        ele_opex_price = 33.69 # in £/MWh
+        ele_opex_price = 33.69
         gas_opex_price = 9.73
         hyd_opex_price = 9
     elif price_fg==1:
-        ele_opex_price = 125 # in £/MWh
+        ele_opex_price = 125
         gas_opex_price = 37
         hyd_opex_price = 100
     elif price_fg==2:
-        ele_opex_price = 125 # in £/MWh
+        ele_opex_price = 125
         gas_opex_price = 37
         hyd_opex_price = 120
     elif price_fg==3:
-        ele_opex_price = 37 # in £/MWh
+        ele_opex_price = 125
         gas_opex_price = 37
         hyd_opex_price = 0
     elif price_fg==4:
-        ele_opex_price = 125 # in £/MWh
+        ele_opex_price = 125
         gas_opex_price = 37
         hyd_opex_price = 75
-        
     elif price_fg == 5:
-        ele_opex_price = 125 # in £/MWh
+        ele_opex_price = 125
         gas_opex_price = 37
-        
-        ## hyd_cost_values = {'2025': 80, '2030': 75, '2035': 70, '2040': 65, '2045': 60, '2050': 55} ## LCOH of Blue H2 
-        hyd_cost_values = {'2025': 100, '2030': 90, '2035': 75, '2040': 70, '2045': 65, '2050': 60} ## LCOH of Greene H2
-
+        hyd_cost_values = {'2025': 100, '2030': 90, '2035': 75, '2040': 70, '2045': 65, '2050': 60}
         year = systemData['Year']; scenario = systemData['scenario']
         hyd_opex_price = hyd_cost_values[year]
         
-        
     genCount = np.shape(genData)[0]
-
-
     prob = lp.LpProblem("OPGF", lp.LpMinimize)
     
     # Variables
@@ -835,16 +823,16 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     q_p2g = lp.LpVariable.dicts("P2G", list(np.arange(4)), cat='Continuous')
     q_g2p = lp.LpVariable.dicts("G2P", list(np.arange(5)), cat='Continuous')
     q_h   = lp.LpVariable("hydrogen", cat='Continuous')
-    q_h_electrolyser = lp.LpVariable("hydrogen_electrolyser", cat='Continuous')  # Hydrogen from electrolyser
-    q_h_atr = lp.LpVariable("hydrogen_atr", cat='Continuous')  # Hydrogen from ATR
-    q_h_surplus = lp.LpVariable("hydrogen_surplus", cat='Continuous')  # Surplus hydrogen for fuel cell
+    q_h_electrolyser = lp.LpVariable("hydrogen_electrolyser", cat='Continuous')
+    q_h_atr = lp.LpVariable("hydrogen_atr", cat='Continuous')
+    q_h_surplus = lp.LpVariable("hydrogen_surplus", cat='Continuous')
     q_fc = lp.LpVariable("fuel_cell_electricity", cat='Continuous')
     
+    # Costs
     C_EZ = ele_opex_price / ez_eff + hyd_opex_price
     C_ATR = gas_opex_price / atr_eff + hyd_opex_price + CO2_penalty * 0.05
     f_EZ  = 1 / C_EZ / (1 / C_EZ + 1 / C_ATR)
     f_ATR = 1 - f_EZ
-    
     
     # Objective function 
     prob += (
@@ -852,33 +840,25 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
         + lp.lpSum(ele_opex_price * q_p2g[p2g] for p2g in range(4))
         + lp.lpSum(gas_opex_price * q_g2p[g2p] for g2p in range(5))
         + lp.lpSum(gas_opex_price * q_g)
-        # + lp.lpSum(hyd_opex_price * q_h)
         + lp.lpSum(hyd_opex_price * (q_h_electrolyser + q_h_atr))
         + lp.lpSum(ele_opex_price * q_h_electrolyser * (1/ez_eff))
-        # + lp.lpSum(gas_opex_price * q_h_atr * (1/atr_eff))
         + lp.lpSum(hyd_opex_price * q_h_surplus)
-        
         + lp.lpSum(CO2_penalty * (0.1) * q_g2p[g2p] for g2p in range(5))
         + lp.lpSum(CO2_penalty * (0.1) * q_g)
-        # + lp.lpSum(CO2_penalty * (0.05) * q_h_atr * (1/atr_eff)) # 0.1, 0.05 capture_rate for CCS
-
-        
         - lp.lpSum(ele_opex_price * q_fc)
     ), "objective"
     
-    
-    # Generator constraints (unchanged)
+    # Generator constraints
     for i in range(genCount):
         prob += q_e[i] <= genData['8'][i]
         prob += q_e[i] >= 0
 
-    # Total gas energy demand (sinks + G2P units + ATR gas consumption)
-    gas_energy_for_atr = q_h_atr * (1 / atr_eff)  # MWh (energy input for ATR)
+    # Gas balance
+    gas_energy_for_atr = q_h_atr * (1 / atr_eff)
     q_gh_chp_gt = (sum(multinet.nets['gas'].sink['mdot_kg_per_s'][0:15])*(EF*1*3600)/(0.4*1000)
                    + lp.lpSum(q_g2p[g2p] for g2p in range(5))
                    + gas_energy_for_atr)
     
-    # Split into gas and hydrogen contributions (unchanged)
     qg_h2_gas = energy_h2_gas(H2_prop, q_gh_chp_gt)
     prob += q_g == qg_h2_gas['qg_gas']
     prob += q_h == qg_h2_gas['qg_h2']
@@ -886,32 +866,15 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     prob += q_h_electrolyser == f_EZ * (q_h_electrolyser + q_h_atr)
     prob += q_h_atr == f_ATR * (q_h_electrolyser + q_h_atr)
     
-    # Total hydrogen to be produced
     total_H2_needed = capacity_HB + capacity_H2 + q_h_surplus
-    
-    # Enforce cost-based splitting
     prob += q_h_electrolyser == f_EZ * total_H2_needed, "EZ_H2_split"
     prob += q_h_atr       == f_ATR * total_H2_needed, "ATR_H2_split"
-
-    # prob += (q_h_electrolyser + q_h_atr) == (capacity_HB + capacity_H2 + q_h_surplus), "Hydrogen_Balance"
-    
-    # prob += q_h_electrolyser <= (capacity_H2 + q_h_surplus) , "EZ_Capacity_Limit"
-    # prob += q_h_atr <= (capacity_HB + q_h_surplus) , "ATR_Capaity_Limit"
-    prob += + q_h_surplus ==  (q_h_electrolyser + q_h_atr - capacity_HB - capacity_H2), "H2_Surplus_Limit"
-    # prob += + q_h_surplus <= 100, "H2_Surplus_Limit"
-    prob += + q_fc <= q_h_surplus * fc_eff , "FC_Capacity_Limit"
-    
-    
-    # prob += q_h_atr >= 0
-    # prob += q_h_electrolyser >= 0
-    prob += + q_h_atr <= (capacity_HB + capacity_H2 +q_h_surplus), "ATR_Capacity_Limit"
-    prob += + q_h_electrolyser <= (capacity_HB + capacity_H2 +q_h_surplus), "EZ_Capacity_Limit"
+    prob += q_h_surplus ==  (q_h_electrolyser + q_h_atr - capacity_HB - capacity_H2), "H2_Surplus_Limit"
+    prob += q_fc <= q_h_surplus * fc_eff , "FC_Capacity_Limit"
     prob += q_h_surplus >= 0 
     prob += q_fc >= 0 
     
-
-
-    # P2G and G2P constraints (unchanged)
+    # P2G and G2P limits
     p2g_limits = [multinet.nets['power'].load['p_mw'][33],
                   multinet.nets['power'].load['p_mw'][34],
                   multinet.nets['power'].load['p_mw'][35],
@@ -927,27 +890,50 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
                   multinet.nets['gas'].sink['mdot_kg_per_s'][19]*(EF*3600)/(0.4*1000)]
     for i in range(5):
         prob += q_g2p[i] <= g2p_limits[i]
-        prob += q_g2p[i] >= capacity_CHP
+        # prob += q_g2p[i] >= capacity_CHP
+        prob += q_g2p[i] >= 0
+
     
-    # Electricity balance (unchanged)
+    # Compute effective hydrogen marginal cost from EZ and ATR
+    hydrogen_marginal_cost = f_EZ * C_EZ + f_ATR * C_ATR
+    systemData['hydrogen_marginal_cost'] = hydrogen_marginal_cost
+    
+    # Use it for FC electricity cost
+    C_FC  = hydrogen_marginal_cost / fc_eff if fc_eff > 0 else float("inf")
+    C_CHP = gas_opex_price / chp_elec_eff + (CO2_penalty * 0.1) / chp_elec_eff if chp_elec_eff > 0 else float("inf")
+    
+    # Inverse-cost weighting
+    if (C_FC == 0) and (C_CHP == 0):
+        fc_share, chp_share = 0.5, 0.5
+    elif C_FC == 0:
+        fc_share, chp_share = 1.0, 0.0
+    elif C_CHP == 0:
+        fc_share, chp_share = 0.0, 1.0
+    else:
+        inv_sum = (1.0 / C_FC) + (1.0 / C_CHP)
+        fc_share = (1.0 / C_FC) / inv_sum
+        chp_share = (1.0 / C_CHP) / inv_sum
+    
+
+    # Electricity balance
     prob += (lp.lpSum(q_e[gen] for gen in range(genCount)) 
            == sum(multinet.nets['power'].load['p_mw'][0:33])
            + lp.lpSum(q_p2g[p2g] for p2g in range(4)) ), "Electricity_Balance"
     
-        
     prob += lp.lpSum(q_p2g[p2g] for p2g in range(4)) <= sum(p2g_limits), "C4"
     prob += lp.lpSum(q_g2p[g2p] for g2p in range(5)) <= sum(g2p_limits), "C5"
     
-
-    # Solve the problem
+    # Solve
     prob.solve(lp.PULP_CBC_CMD(msg=0))
-         
     
+         
     # Extract results
     global variable, Total_cost, optimal_q_e, optimal_q_g, optimal_q_p2g, \
            optimal_q_g2p, optimal_q_h, q_gh_chp_gt_value, gas_capacity_value, \
            h_capacity_value, optimal_q_h_electrolyser, optimal_q_h_atr, atr_in, atr_out, \
-           optimal_q_h_surplus
+           optimal_q_h_surplus, optimal_q_fc
+           
+          
            
     variable = prob.variables()
         
@@ -976,16 +962,20 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     print('optimal_q_h_electrolyser=', optimal_q_h_electrolyser)
     print('optimal_q_h_atr=', optimal_q_h_atr)
     print('optimal_q_h_surplus=', optimal_q_h_surplus)
-        
     
-    # Set capacities based on optimization results
-    if EZ_ATR_fg =='Optimal':
+    
+        
+    # Capacities based on chosen mode    
+    if EZ_ATR_FC_CHP_fg =='Optimal':
         EZ_capacity_value = optimal_q_h_electrolyser   
         ATR_capacity_value = optimal_q_h_atr 
         FC_capacity_value = abs(optimal_q_h_surplus) 
-        
-    # Split H2 (EZ and ATR) linearly based on their marginal cost of H2 production
-    if EZ_ATR_fg =='H2CostWeight':
+        if HPHB_sw == "Base_MC_Interv" and H2_prop == 1.0:
+            FC_capacity_value  = fc_share * capacity_CHP
+            CHP_capacity_value = chp_share * capacity_CHP
+            capacity_CHP = CHP_capacity_value
+
+    elif EZ_ATR_FC_CHP_fg =='H2CostWeight':
         total_hydrogen = capacity_HB + capacity_H2 + q_h_surplus.varValue
         sum_inv_costs = 1/C_EZ + 1/C_ATR
         q_h_electrolyser_share = (1/C_EZ) / sum_inv_costs
@@ -997,29 +987,36 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
         ATR_capacity_value = q_h_atr_value
         FC_capacity_value = abs(optimal_q_h_surplus) 
 
+        if HPHB_sw == "Base_MC_Interv" and H2_prop == 1.0:
+            FC_capacity_value  = fc_share * capacity_CHP
+            CHP_capacity_value = chp_share * capacity_CHP
+            capacity_CHP = CHP_capacity_value
 
-    # Set capacities based on EZ_ATR_fg values (manual allocation)
-    if EZ_ATR_fg == 0.5:
+    if EZ_ATR_FC_CHP_fg == 0.5:
         EZ_capacity_value = (capacity_HB + capacity_H2 + FC_capacity_value)/2
         ATR_capacity_value = (capacity_HB + capacity_H2 + FC_capacity_value)/2
 
-    if EZ_ATR_fg == 0.8:
+    if EZ_ATR_FC_CHP_fg == 0.8:
         EZ_capacity_value = (capacity_HB + capacity_H2 + FC_capacity_value)*0.2
         ATR_capacity_value = (capacity_HB + capacity_H2 + FC_capacity_value)*0.8
 
-    if EZ_ATR_fg == 1.0:
-        EZ_capacity_value = (capacity_HB + capacity_H2 + FC_capacity_value)*0
-        ATR_capacity_value = (capacity_HB + capacity_H2 + FC_capacity_value)
-
-    
-    
-    
+    if EZ_ATR_FC_CHP_fg == 1.0:
+        EZ_capacity_value = capacity_HB + capacity_H2 + FC_capacity_value
+        ATR_capacity_value = 0
+        
+       
+    print("EZ/ATR split: EZ_share=", f_EZ, " ATR_share=", f_ATR)
     print('EZ_capacity_value=', EZ_capacity_value)
     print('ATR_capacity_value=', ATR_capacity_value)
+    print("FC/CHP split: fc_share=", fc_share, " chp_share=", chp_share)
     print('FC_capacity_value=', FC_capacity_value)
+    print('CHP_capacity_value=', CHP_capacity_value)
+    print('hydrogen_marginal_cost', hydrogen_marginal_cost)
+    print('system_hydrogen_marginal_cost', systemData['hydrogen_marginal_cost'])
+    
+    # st=stop
         
-    
-    
+
     # Update hydrogen network components
     electrolyser(net_power, net_hyd, multinet, EZ_capacity_value, H2_prop)
     atr_in, atr_out = autothermal_reformer(net_gas, net_hyd, multinet, ATR_capacity_value, H2_prop)
@@ -1032,7 +1029,7 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     
     Total_cost = lp.value(prob.objective)
     
-    CHP_capacity_value = optimal_q_g2p
+    # CHP_capacity_value = optimal_q_g2p
 
     print('capacity_CHP=', capacity_CHP)
     print('CHP_capacity_value=', CHP_capacity_value)
@@ -1044,11 +1041,17 @@ def OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, pr
     print('hydrogen_boilers=', hydrogen_boilers)
     print('H2_prop', H2_prop)
     print('hyd_share', hyd_share)
-
+    
+    
+    # Total cost
+    Total_cost = lp.value(prob.objective)
+    
     
     coupling_chp_heat(net_power, net_gas, multinet, CHP_capacity_value, H2_prop)
 
     return
+
+    
 
 
 
@@ -1108,7 +1111,7 @@ def store_results(multinet):
 
 
 def run_OPGF(t, genData, systemData, H2_prop, temp_system, price_fg, num_simulations,
-             heat_pumps, hydrogen_boilers, others, base_sw, HPHB_sw, EZ_ATR_fg,
+             heat_pumps, hydrogen_boilers, others, base_sw, HPHB_sw, EZ_ATR_FC_CHP_fg,
              list_ele_demand, list_gas_demand):
     
     
@@ -1157,7 +1160,7 @@ def run_OPGF(t, genData, systemData, H2_prop, temp_system, price_fg, num_simulat
         # print('multinet load=', multinet.nets['power'].load)
                 
         OPGF(systemData, multinet, genData, net_power, net_gas, net_hyd, H2_prop, price_fg, 
-                               heat_pumps, hydrogen_boilers, base_sw, HPHB_sw, EZ_ATR_fg, 
+                               heat_pumps, hydrogen_boilers, base_sw, HPHB_sw, EZ_ATR_FC_CHP_fg, 
                                list_ele_demand, list_gas_demand)
         
         # Run simulation for both power and hydrogen networks
