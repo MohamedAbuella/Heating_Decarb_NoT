@@ -29,7 +29,6 @@ EZ_ATR_FC_CHP_fg = 'Optimal'
 # EZ_ATR_FC_CHP_fg = 0.8
 # EZ_ATR_FC_CHP_fg = 1.0
 
-FC_CHP_fg = 'Optimal'
 
 
 
@@ -757,6 +756,15 @@ def cost_check(model, multinet, systemData):
     
     emissionCost = emis_chp_gt + emis_other
     
+    if systemData['Players']['emissions'][0]>0:
+        
+        EH = mdot_energy_conv(1)
+
+        q_g2h = multinet['nets']['hydrogen']['res_source']['mdot_kg_per_s'][1]*(EH*3600)/(0.4*1000)
+
+        emissionCost = emissionCost + q_g2h*0.1*model.CO2.value
+
+    
     ################
     
     # Costs for players 26, 27, 28
@@ -804,6 +812,7 @@ def update_GT(year, scenario, multinet, systemData):
     # print(multinet['nets']['hydrogen']['sink'])
     # print(multinet['nets']['hydrogen']['res_sink'])
     # st=stop
+    
     
     q_g2h = multinet['nets']['hydrogen']['res_source']['mdot_kg_per_s'][1]*(EH*3600)/(0.4*1000)
 
@@ -1390,10 +1399,10 @@ if __name__ == "__main__":
     scenarios_list = ['HB_Interv' ,'HP_Interv', 'HP_HB_Interv', 'Base_MC_Interv']
     h2_proportions = ['1.0', '0.0', '0.1', '0.2']
     
-    scenarios_list = ['Base_MC_Interv']
+    # scenarios_list = ['Base_MC_Interv']
     # scenarios_list = ['HP_HB_Interv']
     # scenarios_list = ['HP_Interv']
-    # scenarios_list = ['HB_Interv']
+    scenarios_list = ['HB_Interv']
     
     # h2_proportions = ['0.0']
     # h2_proportions = ['0.1']
@@ -1471,7 +1480,7 @@ if __name__ == "__main__":
                 
                 
                 
-            years = ['2025', '2030', '2035', '2040', '2045', '2050']
+            # years = ['2025', '2030', '2035', '2040', '2045', '2050']
             
             # years = ['2025', '2030', '2045', '2050']
             
@@ -1483,7 +1492,7 @@ if __name__ == "__main__":
             
             # years = ['2030'] 
             
-            # years = ['2035']   
+            years = ['2035']   
             
             # years = ['2050']
             
@@ -1526,8 +1535,9 @@ if __name__ == "__main__":
                             
                             # for hour_of_day in [0]:
                             # for hour_of_day in [8]:
+                            for hour_of_day in [20]:
                             # for hour_of_day in range(3):
-                            for hour_of_day in range(24):
+                            # for hour_of_day in range(24):
                                 
                                 # Import the system data for the given year and scenario
                                 from HP_H2B_Social_Interv_multinet_NoT import data_import
